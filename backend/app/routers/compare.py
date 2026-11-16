@@ -1,4 +1,8 @@
-"""同期对比分析接口：维护对比方案，覆盖执行对比、原因分析、归档方案等动作。"""
+"""同期对比分析接口：维护对比方案，覆盖执行对比、原因分析、归档方案等动作。
+
+跨模块核对接口（读取经营预测模型的预测结果数据集）也挂在本路由下；
+固定路径须声明在 ``/{entry_id}`` 之前，避免被路径参数抢走。
+"""
 from __future__ import annotations
 
 from typing import Any
@@ -14,6 +18,28 @@ service = CompareService()
 
 LIST_FIELDS = ["方案编号", "对比指标", "基准周期", "对比周期", "变化幅度", "变化方向", "原因分析", "方案状态"]
 STATUSES = ["草稿", "已对比", "已分析", "已归档"]
+
+
+@router.get("/forecast-runs")
+def forecast_runs() -> dict[str, Any]:
+    """可供核对的预测版本清单（来自经营预测模型的预测结果数据集）。"""
+    return {"items": service.list_forecast_runs()}
+
+
+@router.get("/forecast-check/{run_id}")
+def forecast_check(run_id: int) -> dict[str, Any]:
+    """预测核对视图：按实际发生日期关联最终实际值，未到达的点标为待观测。"""
+    result = service.forecast_check(run_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail=f"预测版本 {run_id} 不存在，请先在经营预测模型模块运行回测")
+    return result
+
+
+@router.get("/export")
+def export_entries() -> dict[str, Any]:
+    """导出同期对比分析清单：返回当前过滤条件下的全量数据。"""
+    items, total = service.list_entries(page=1, size=10000)
+    return {"module": "compare", "total": total, "items": items}
 
 
 @router.get("", response_model=PageResult[dict])
@@ -56,10 +82,3 @@ def run_action(entry_id: int, payload: EntryPayload) -> ActionResult:
     if entry is None:
         return ActionResult(ok=False, message=message)
     return ActionResult(ok=True, message=message, entry=entry)
-
-
-@router.get("/export")
-def export_entries() -> dict[str, Any]:
-    """导出同期对比分析清单：返回当前过滤条件下的全量数据。"""
-    items, total = service.list_entries(page=1, size=10000)
-    return {"module": "compare", "total": total, "items": items}
